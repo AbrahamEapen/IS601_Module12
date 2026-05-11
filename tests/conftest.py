@@ -8,11 +8,13 @@ from contextlib import contextmanager
 import pytest
 import requests
 from faker import Faker
+from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import SQLAlchemyError
 from playwright.sync_api import sync_playwright, Browser, Page
 
-from app.database import Base, get_engine, get_sessionmaker
+from app.database import Base, get_engine, get_sessionmaker, get_db
+from app.main import app
 from app.models.user import User
 from app.core.config import settings
 from app.database_init import init_db, drop_db
@@ -249,6 +251,27 @@ def page(browser_context: Browser):
         logger.info("Closing browser page and context.")
         page.close()
         context.close()
+
+# ======================================================================================
+# TestClient Fixture (used by API integration tests)
+# ======================================================================================
+@pytest.fixture
+def client(db_session: Session):
+    """
+    FastAPI TestClient that shares the test database session.
+
+    The get_db dependency is overridden to yield the same db_session that the
+    test itself uses, so both the endpoint code and the test assertions see the
+    same transactional state.
+    """
+    def override_get_db():
+        yield db_session
+
+    app.dependency_overrides[get_db] = override_get_db
+    with TestClient(app, raise_server_exceptions=True) as test_client:
+        yield test_client
+    app.dependency_overrides.clear()
+
 
 # ======================================================================================
 # Pytest Command-Line Options
