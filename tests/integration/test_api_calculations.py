@@ -107,10 +107,12 @@ class TestCreateCalculation:
         resp = client.post("/calculations", json={"type": "addition", "inputs": [1, 2]})
         assert resp.status_code == 401
 
-    def test_division_by_zero_returns_400(self, auth_client):
+    def test_division_by_zero_returns_422(self, auth_client):
+        # Division-by-zero is caught by the Pydantic schema validator before the
+        # endpoint runs, so FastAPI returns 422 (Unprocessable Entity), not 400.
         client, _ = auth_client
         resp = client.post("/calculations", json={"type": "division", "inputs": [10, 0]})
-        assert resp.status_code == 400
+        assert resp.status_code == 422
 
     def test_too_few_inputs_returns_422(self, auth_client):
         """Schema validation requires at least 2 inputs."""
@@ -220,8 +222,11 @@ class TestGetCalculation:
         assert resp.status_code == 400
 
     def test_unauthenticated_returns_401(self, created_calc, client: TestClient):
+        # `client` is the same object that `auth_client` already added an
+        # Authorization header to.  Override it per-request with an empty value
+        # so OAuth2PasswordBearer sees no valid bearer token and returns 401.
         _, calc = created_calc
-        resp = client.get(f"/calculations/{calc['id']}")
+        resp = client.get(f"/calculations/{calc['id']}", headers={"Authorization": ""})
         assert resp.status_code == 401
 
     def test_other_user_cannot_read(self, created_calc, client: TestClient):
@@ -282,7 +287,11 @@ class TestUpdateCalculation:
 
     def test_unauthenticated_returns_401(self, created_calc, client: TestClient):
         _, calc = created_calc
-        resp = client.put(f"/calculations/{calc['id']}", json={"inputs": [1, 2]})
+        resp = client.put(
+            f"/calculations/{calc['id']}",
+            json={"inputs": [1, 2]},
+            headers={"Authorization": ""},
+        )
         assert resp.status_code == 401
 
 
@@ -320,7 +329,7 @@ class TestDeleteCalculation:
 
     def test_unauthenticated_returns_401(self, created_calc, client: TestClient):
         _, calc = created_calc
-        resp = client.delete(f"/calculations/{calc['id']}")
+        resp = client.delete(f"/calculations/{calc['id']}", headers={"Authorization": ""})
         assert resp.status_code == 401
 
     def test_removed_from_db(self, created_calc, db_session: Session):
